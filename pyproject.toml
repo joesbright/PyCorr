@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "PyCorr"
+version = "0.0.1"
+authors = [
+  { name="Ross Donnachie", email="code@radonn.co.za" },
+]
+description = "Python Correlator, outputting UVH5"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "h5py",
+  "tomli",
+  "pyerfa",
+  "guppi @ git+https://github.com/wfarah/guppi",
+]
+
+[project.scripts]
+pycorr = "pycorr:entrypoints.main"

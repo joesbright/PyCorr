@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+src/PyCorr.egg-info/PKG-INFO
+src/PyCorr.egg-info/SOURCES.txt
+src/PyCorr.egg-info/dependency_links.txt
+src/PyCorr.egg-info/entry_points.txt
+src/PyCorr.egg-info/requires.txt
+src/PyCorr.egg-info/top_level.txt
+src/pycorr/__init__.py
+src/pycorr/entrypoints.py
