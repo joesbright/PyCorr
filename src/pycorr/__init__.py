@@ -37,6 +37,7 @@ def upchannelise(
 
 def integrate(
     datablock: numpy.ndarray, # [Antenna, Frequency, Time, Polarization]
+    keepdims: bool = False
 ):
     """
     Integration of all time samples.
@@ -45,13 +46,16 @@ def integrate(
     ------
         datablock: numpy.ndarray # [Antenna, Frequency, Time, Polarization]
             the data to be integrated
+        keepdims: False
+            whether or not the collapsed Time dimension of length 1
+            should remain in the shape of the returned data
     """
-    return datablock.sum(axis=2, keepdims=False)
+    return datablock.sum(axis=2, keepdims=keepdims)
 
 
 def _correlate_antenna_data(
-    ant1_data: numpy.ndarray, # [Frequency, Polarization]
-    ant2_data: numpy.ndarray, # [Frequency, Polarization]
+    ant1_data: numpy.ndarray, # [Frequency, Time, Polarization]
+    ant2_data: numpy.ndarray, # [Frequency, Time, Polarization]
 ):
     """
     Produces the correlations with typical polarisation permutation.
@@ -63,19 +67,19 @@ def _correlate_antenna_data(
     """
     assert ant1_data.shape == ant2_data.shape, f"Antenna data should have the same shape"
 
-    P = ant1_data.shape[1]
+    P = ant1_data.shape[-1]
     return numpy.transpose(
         [
-            ant1_data[:, p1]*ant2_data[:, p2]
+            ant1_data[:, :, p1]*ant2_data[:, :, p2]
             for p1 in range(P) for p2 in range(P)
         ],
-        (1, 0)
+        (1, 2, 0)
     )
 
 def correlation(
     datablock: numpy.ndarray, # [Antenna, Frequency, Time, Polarization]
 ):
-    A, F, P = datablock.shape
+    A, F, T, P = datablock.shape
     assert P == 2, f"Expecting 2 polarisations"
     assert A > 1, f"Expecting more than 1 antenna"
 
@@ -85,6 +89,7 @@ def correlation(
         (
             A*(A+1)//2,
             F,
+            T,
             P*P
         ),
         dtype='D'
@@ -94,18 +99,18 @@ def correlation(
     # auto correlations first
     for a in range(A):
         
-        corr[correlation_index, :, :] = _correlate_antenna_data(
-            datablock[a, :, :],
-            datablock_conj[a, :, :]
+        corr[correlation_index, :, :, :] = _correlate_antenna_data(
+            datablock[a, :, :, :],
+            datablock_conj[a, :, :, :]
         )
         correlation_index += 1
 
     # cross correlations
     for a1 in range(A):
         for a2 in range(a1+1, A):
-            corr[correlation_index, :, :] = _correlate_antenna_data(
-                datablock[a1, :, :],
-                datablock_conj[a2, :, :]
+            corr[correlation_index, :, :, :] = _correlate_antenna_data(
+                datablock[a1, :, :, :],
+                datablock_conj[a2, :, :, :]
             )
             correlation_index += 1
 

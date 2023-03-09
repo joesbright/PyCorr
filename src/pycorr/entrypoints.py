@@ -310,16 +310,15 @@ def main():
                 pycorr.logger.debug(f"Channelisation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                 t = time.time()
-                assert datablock.shape[2] == args.integration_rate
-                datablock = pycorr.integrate(datablock)
-                
-                elapsed_s = time.time() - t
-                pycorr.logger.debug(f"Integration: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
-
-                t = time.time()
-                corr = pycorr.correlation(datablock)
+                datablock = pycorr.correlation(datablock)
                 elapsed_s = time.time() - t
                 pycorr.logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+
+                t = time.time()
+                assert datablock.shape[2] == args.integration_rate
+                datablock = pycorr.integrate(datablock)
+                elapsed_s = time.time() - t
+                pycorr.logger.debug(f"Integration: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                 t = time.time()
                 time_array.fill(
@@ -347,7 +346,7 @@ def main():
                     ),
                     time_array,
                     integration_time,
-                    corr,
+                    datablock,
                     flags,
                     nsamples,
                 )
