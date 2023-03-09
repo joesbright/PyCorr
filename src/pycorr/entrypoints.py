@@ -269,25 +269,31 @@ def main():
             dut1 = dut1
         )
 
+        pycorr.logger.debug(f"Block shape {guppi_data.shape}.")
         datablock_shape = list(guppi_data.shape)
-        datablocks_per_requirement = datablock_time_requirement/datablock_shape[2]
-        pycorr.logger.debug(f"Collects ceil({datablocks_per_requirement}) blocks for correlation.")
-        datablock_shape[2] = numpy.ceil(datablocks_per_requirement)*datablock_shape[2]
+        datablock_shape[2] = datablock_time_requirement
+        datablock_process_size = numpy.prod(datablock_shape)
+
+        datablocks_per_requirement = datablock_time_requirement/guppi_data.shape[2]
+        datablock_shape[2] = int(numpy.ceil(datablocks_per_requirement))*guppi_data.shape[2]
+        pycorr.logger.debug(f"Collects ceil({datablocks_per_requirement}) blocks for correlation, shape {datablock_shape}.")
         
-        datablock = guppi_data[:, :, 0:0, :]
+        datablock = numpy.zeros(tuple(datablock_shape), dtype='F')
+        datablock_colidx = 0
         datablock_pktidx_start = guppi_header["PKTIDX"]
+
+        datablock_bytesize = datablock_process_size * datablock.itemsize
+        pycorr.logger.debug(f"Datablock bytesize: {datablock_bytesize/(10**6)} MB")
 
         t = time.time()
         t_start = t
         last_file_pos = 0
         datasize_processed = 0
         while True:
-            datablock = numpy.concatenate(
-                (datablock, guppi_data),
-                axis=2 # concatenate in time
-            )
+            datablock[:, :, datablock_colidx:datablock_colidx+guppi_data.shape[2], :] = guppi_data
+            datablock_colidx += guppi_data.shape[2]
             
-            if datablock.shape[2] >= datablock_time_requirement:
+            if datablock_colidx >= datablock_time_requirement:
                 file_pos = guppi.file.tell()
                 datasize_processed += file_pos - last_file_pos
                 last_file_pos = file_pos
@@ -296,28 +302,24 @@ def main():
                 pycorr.logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {elapsed_s:0.3f} s, ETC: {elapsed_s*(1-progress)/progress:0.3f} s")
                 pycorr.logger.debug(f"Running throughput: {datasize_processed/(elapsed_s*10**6):0.3f} MB/s")
 
-            while datablock.shape[2] >= datablock_time_requirement:
-                datablock_residual = datablock[:, :, datablock_time_requirement:, :]
-                datablock = datablock[:, :, 0:datablock_time_requirement, :]
-
-                datablock_bytesize = datablock.size * datablock.itemsize
-                pycorr.logger.debug(f"Datablock bytesize: {datablock_bytesize/(10**6)} MB")
-
+            datablock_procidx = 0
+            while (datablock_colidx - datablock_procidx) >= datablock_time_requirement:
                 t = time.time()
-                datablock = pycorr.upchannelise(datablock, args.upchannelisation_rate)
-                
+                processed_data = pycorr.upchannelise(
+                    datablock[:, :, datablock_procidx:datablock_procidx+datablock_time_requirement, :],
+                    args.upchannelisation_rate
+                )
                 elapsed_s = time.time() - t
                 pycorr.logger.debug(f"Channelisation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                 t = time.time()
-                assert datablock.shape[2] == args.integration_rate
-                datablock = pycorr.integrate(datablock)
-                
+                assert processed_data.shape[2] == args.integration_rate
+                processed_data = pycorr.integrate(processed_data)
                 elapsed_s = time.time() - t
                 pycorr.logger.debug(f"Integration: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                 t = time.time()
-                corr = pycorr.correlation(datablock)
+                processed_data = pycorr.correlation(processed_data)
                 elapsed_s = time.time() - t
                 pycorr.logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
@@ -347,7 +349,7 @@ def main():
                     ),
                     time_array,
                     integration_time,
-                    corr,
+                    processed_data,
                     flags,
                     nsamples,
                 )
@@ -355,8 +357,20 @@ def main():
                 pycorr.logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
                 
                 datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
-                datablock = datablock_residual
-                del datablock_residual
+                datablock_procidx += datablock_time_requirement
+            
+            assert (datablock_colidx - datablock_procidx) >= 0
+            if datablock_procidx == 0:
+                # nothing processed, continue collecting from colidx
+                pass
+            elif datablock_procidx < datablock_colidx:
+                # move residual data to front, collect thereafter
+                residual_timeidx = datablock_colidx - datablock_procidx
+                datablock[:,:,0:residual_timeidx] = datablock[:,:,datablock_procidx:datablock_colidx]
+                datablock_colidx = residual_timeidx
+            else:
+                # everything processed, collect at the start
+                datablock_colidx = 0
 
             guppi_header, guppi_data = guppi.read_next_block()
             if guppi_header is None and len(args.raw_filepaths) > 0:

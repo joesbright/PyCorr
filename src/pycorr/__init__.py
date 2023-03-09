@@ -26,14 +26,14 @@ def upchannelise(
 
     A, F, T, P = datablock.shape
     assert T % rate == 0, f"Rate {rate} is not a factor of time {T}."
-    datablock = datablock.reshape((A, F, T//rate, rate, P))
-    datablock = numpy.fft.fftshift(numpy.fft.fft(
-            datablock,
+    upchan_datablock = datablock.reshape((A, F, T//rate, rate, P))
+    upchan_datablock = numpy.fft.fftshift(numpy.fft.fft(
+            upchan_datablock,
             axis=3
         ),
         axes=3
     )
-    return datablock.transpose((0, 1, 3, 2, 4)).reshape((A, F*rate, T//rate, P))
+    return upchan_datablock.transpose((0, 1, 3, 2, 4)).reshape((A, F*rate, T//rate, P))
 
 def integrate(
     datablock: numpy.ndarray, # [Antenna, Frequency, Time, Polarization]
