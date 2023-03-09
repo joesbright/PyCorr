@@ -203,6 +203,9 @@ def main():
     else:
         output_filepath = args.output_filepath
 
+    guppi_bytes_total = numpy.sum(list(map(os.path.getsize, args.raw_filepaths)))
+    pycorr.logger.debug(f"Total GUPPI RAW bytes: {guppi_bytes_total/(10**6)} MB")
+
     guppi = Guppi(args.raw_filepaths.pop(0))
     guppi_header, guppi_data = guppi.read_next_block()
     telinfo = filter_telinfo(telinfo, guppi_header)
@@ -266,10 +269,17 @@ def main():
             dut1 = dut1
         )
 
+        datablock_shape = list(guppi_data.shape)
+        datablocks_per_requirement = datablock_time_requirement/datablock_shape[2]
+        pycorr.logger.debug(f"Collects ceil({datablocks_per_requirement}) blocks for correlation.")
+        datablock_shape[2] = numpy.ceil(datablocks_per_requirement)*datablock_shape[2]
+        
         datablock = guppi_data[:, :, 0:0, :]
         datablock_pktidx_start = guppi_header["PKTIDX"]
 
         t = time.time()
+        t_start = t
+        last_file_pos = 0
         datasize_processed = 0
         while True:
             datablock = numpy.concatenate(
@@ -277,36 +287,41 @@ def main():
                 axis=2 # concatenate in time
             )
             
+            if datablock.shape[2] >= datablock_time_requirement:
+                file_pos = guppi.file.tell()
+                datasize_processed += file_pos - last_file_pos
+                last_file_pos = file_pos
+                progress = datasize_processed/guppi_bytes_total
+                elapsed_s = time.time() - t_start
+                pycorr.logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {elapsed_s:0.3f} s, ETC: {elapsed_s*(1-progress)/progress:0.3f} s")
+                pycorr.logger.debug(f"Running throughput: {datasize_processed/(elapsed_s*10**6):0.3f} MB/s")
+
             while datablock.shape[2] >= datablock_time_requirement:
                 datablock_residual = datablock[:, :, datablock_time_requirement:, :]
                 datablock = datablock[:, :, 0:datablock_time_requirement, :]
 
                 datablock_bytesize = datablock.size * datablock.itemsize
-                datasize_processed += datablock_bytesize
                 pycorr.logger.debug(f"Datablock bytesize: {datablock_bytesize/(10**6)} MB")
 
-                elapsed_s = time.time() - t
-                pycorr.logger.debug(f"Running throughput: {datasize_processed/(elapsed_s * 10**6)} MB/s")
                 t = time.time()
-
                 datablock = pycorr.upchannelise(datablock, args.upchannelisation_rate)
                 
                 elapsed_s = time.time() - t
                 pycorr.logger.debug(f"Channelisation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
-                t = time.time()
 
+                t = time.time()
                 assert datablock.shape[2] == args.integration_rate
                 datablock = pycorr.integrate(datablock)
                 
                 elapsed_s = time.time() - t
                 pycorr.logger.debug(f"Integration: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
-                t = time.time()
 
+                t = time.time()
                 corr = pycorr.correlation(datablock)
                 elapsed_s = time.time() - t
                 pycorr.logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
-                t = time.time()
 
+                t = time.time()
                 time_array.fill(
                     _get_jd(
                         tbin,
@@ -341,13 +356,12 @@ def main():
                 
                 datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
                 datablock = datablock_residual
-                del datablock_residual 
-                
-                t = time.time()
+                del datablock_residual
 
             guppi_header, guppi_data = guppi.read_next_block()
             if guppi_header is None and len(args.raw_filepaths) > 0:
                 guppi = Guppi(args.raw_filepaths.pop(0))
+                last_file_pos = 0
                 guppi_header, guppi_data = guppi.read_next_block()
                 
             if guppi_header is None:
