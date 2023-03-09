@@ -129,6 +129,17 @@ def get_uvh5_ant_arrays(
     
     return ant_1_array, ant_2_array
 
+POLARISATION_MAP = {
+  "i" :  1, "q" :  2, "u" :  3,  "v":  4,
+  "rr": -1, "ll": -2, "rl": -3, "lr": -4,
+  "xx": -5, "yy": -6, "xy": -7, "yx": -8,
+}
+
+def get_polarisation_array(polarisation_strings: list):
+    return list(map(
+        lambda polstr: POLARISATION_MAP[polstr.lower()],
+        polarisation_strings
+    ))
 
 def get_uvw_array(
     time_jd,
@@ -210,7 +221,6 @@ def uvh5_initialise(
     num_bls = len(antennas)*(len(antennas)+1)//2
     num_freqs = len(frequencies_hz)
     num_polprods = len(polproducts)
-    num_pols = int(numpy.sqrt(num_polprods))
 
     uvh5g_header = fout.create_group("Header")
     uvh5g_data = fout.create_group("Data")
@@ -235,14 +245,17 @@ def uvh5_initialise(
 
     uvh5g_header.create_dataset("Nbls", data=num_bls)
     uvh5g_header.create_dataset("Nfreqs", data=num_freqs)
-    uvh5g_header.create_dataset("Npols", data=num_pols)
+    uvh5g_header.create_dataset("Npols", data=num_polprods)
     uvh5g_header.create_dataset("freq_array", data=frequencies_hz, dtype='d')
-    uvh5g_header.create_dataset("channel_width", data=frequencies_hz[1]-frequencies_hz[0], dtype='d')
+    channel_width = [frequencies_hz[i+1]-frequencies_hz[i] for i in range(len(frequencies_hz)-1)]
+    channel_width.append(channel_width[-1])
+    assert len(channel_width) == len(frequencies_hz)
+    uvh5g_header.create_dataset("channel_width", data=numpy.array(channel_width), dtype='d')
     uvh5g_header.create_dataset("Nspws", data=1)
     uvh5g_header.create_dataset("spw_array", data=numpy.ones((1), dtype='i'))
     uvh5g_header.create_dataset("flex_spw", data=False)
 
-    uvh5g_header.create_dataset("polarization_array", data=numpy.array(polproducts, dtype=f"S{max(map(len, polproducts))}"), dtype=h5py.special_dtype(vlen=str))
+    uvh5g_header.create_dataset("polarization_array", data=numpy.array(get_polarisation_array(polproducts)), dtype='i')
 
     uvh5g_header.create_dataset("version", data="1.0".encode())
     # uvh5g_header.create_dataset("flex_spw_id_array", data=) # 1 int
@@ -268,8 +281,8 @@ def uvh5_initialise(
         "header_integration_time": uvh5g_header.create_dataset("integration_time", (0,), dtype='d', maxshape=(None,)),
 
         "data_visdata": uvh5g_data.create_dataset("visdata", (0, num_freqs, num_polprods), dtype='D', maxshape=(None, num_freqs, num_polprods)),
-        "data_flags": uvh5g_data.create_dataset("flags", (0, num_freqs, num_polprods), dtype='b', maxshape=(None, num_freqs, num_polprods)),
-        "data_nsamples": uvh5g_data.create_dataset("nsamples", (0, num_freqs, num_polprods), dtype='i', maxshape=(None, num_freqs, num_polprods)),
+        "data_flags": uvh5g_data.create_dataset("flags", (0, num_freqs, num_polprods), dtype='?', maxshape=(None, num_freqs, num_polprods)),
+        "data_nsamples": uvh5g_data.create_dataset("nsamples", (0, num_freqs, num_polprods), dtype='d', maxshape=(None, num_freqs, num_polprods)),
     }
 
 
@@ -285,7 +298,7 @@ def uvh5_write_chunk(
     nsamples,
 ):
     
-    num_bls, num_freqs, num_pols = visdata.shape
+    num_bls, num_freqs, num_polprods = visdata.shape
 
     uvh5_datasets["header_ntimes"][()] += 1
     uvh5_datasets["header_nblts"][()] += num_bls
@@ -307,11 +320,11 @@ def uvh5_write_chunk(
     uvh5_datasets["header_integration_time"].resize((num_bltimes,))
     uvh5_datasets["header_integration_time"][-num_bls:] = integration_time
 
-    uvh5_datasets["data_visdata"].resize((num_bltimes, num_freqs, num_pols))
+    uvh5_datasets["data_visdata"].resize((num_bltimes, num_freqs, num_polprods))
     uvh5_datasets["data_visdata"][-num_bls:, :, :] = visdata
 
-    uvh5_datasets["data_flags"].resize((num_bltimes, num_freqs, num_pols))
+    uvh5_datasets["data_flags"].resize((num_bltimes, num_freqs, num_polprods))
     uvh5_datasets["data_flags"][-num_bls:, :, :] = flags
 
-    uvh5_datasets["data_nsamples"].resize((num_bltimes, num_freqs, num_pols))
+    uvh5_datasets["data_nsamples"].resize((num_bltimes, num_freqs, num_polprods))
     uvh5_datasets["data_nsamples"][-num_bls:, :, :] = nsamples

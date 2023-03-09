@@ -125,7 +125,7 @@ def _get_jd(
     synctime,
     pktidx
 ):
-    unix = synctime + ((sampleperblk * tbin) / piperblk) * pktidx
+    unix = synctime + (pktidx * (sampleperblk/piperblk)) * tbin
     return 2440587.5 + unix/86400
 
 def main():
@@ -239,10 +239,10 @@ def main():
     synctime = guppi_header.get("SYNCTIME", 0)
     dut1 = guppi_header.get("DUT1", 0.0)
 
-    time_array = numpy.array((num_bls,))
+    time_array = numpy.array((num_bls,), dtype='d')
     integration_time = numpy.array((num_bls,))
     integration_time.fill(datablock_time_requirement*tbin)
-    flags = numpy.zeros((num_bls, len(frequencies_hz), len(polproducts)), dtype='i')
+    flags = numpy.zeros((num_bls, len(frequencies_hz), len(polproducts)), dtype='?')
     nsamples = numpy.ones((num_bls, len(frequencies_hz), len(polproducts)), dtype='d')
 
     ant_xyz = numpy.array([ant["position"] for ant in telinfo["antennas"]])
@@ -337,7 +337,7 @@ def main():
                     nsamples,
                 )
                 elapsed_s = time.time() - t
-                pycorr.logger.info(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                pycorr.logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
                 
                 datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
                 datablock = datablock_residual
