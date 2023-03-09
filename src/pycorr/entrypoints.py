@@ -218,7 +218,7 @@ def main():
     nchan = guppi_header["OBSNCHAN"] // nants
     ntimes = guppi_data.shape[2]
     schan = guppi_header.get("SCHAN", 0)
-    frequency_channel_0_hz = guppi_header["OBSFREQ"] - (nchan/2 + schan - 0.5)*guppi_header["CHAN_BW"]
+    frequency_channel_0_hz = guppi_header["OBSFREQ"] - (nchan/2 - 0.5)*guppi_header["CHAN_BW"]
     upchan_bw = guppi_header["CHAN_BW"]/args.upchannelisation_rate
     frequency_channel_0_hz += 0.5 * upchan_bw
     frequencies_hz = (frequency_channel_0_hz + numpy.arange(nchan*args.upchannelisation_rate)*upchan_bw)*1e6
