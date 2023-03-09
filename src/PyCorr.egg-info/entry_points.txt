@@ -1,2 +1,0 @@
-[console_scripts]
-pycorr = pycorr:entrypoints.main

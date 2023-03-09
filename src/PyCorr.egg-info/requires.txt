@@ -1,4 +1,0 @@
-h5py
-tomli
-pyerfa
-guppi@ git+https://github.com/wfarah/guppi
