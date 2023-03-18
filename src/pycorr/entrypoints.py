@@ -54,17 +54,8 @@ def _get_telescope_metadata(telescope_info_filepath):
     altitude = telescope_info["altitude"]
     antenna_positions = numpy.array([antenna["position"] for antenna in telescope_info["antennas"]])
 
-    if "ecef" == telescope_info["antenna_position_frame"].lower():
-        logger.info("Transforming antenna positions from XYZ to ECEF")
-        transform_antenna_positions_ecef_to_xyz(
-            longitude,
-            latitude,
-            altitude,
-            antenna_positions,
-        )
-    else:
-        # TODO handle enu
-        assert telescope_info["antenna_position_frame"].lower() == "xyz"
+    # TODO handle ecef, enu
+    assert telescope_info["antenna_position_frame"].lower() == "xyz"
 
     return {
         "telescope_name": telescope_info["telescope_name"],
@@ -169,6 +160,18 @@ def main():
         help="The polarisation characters for each polarisation, as a string (e.g. 'xy').",
     )
     parser.add_argument(
+        "-b", "--frequency-mhz-begin",
+        type=float,
+        default=None,
+        help="The lowest frequency (MHz) of the fine-spectra to analyse (at least 1 channel will be processed).",
+    )
+    parser.add_argument(
+        "-e", "--frequency-mhz-end",
+        type=float,
+        default=None,
+        help="The highest frequency (MHz) of the fine-spectra to analyse (at least 1 channel will be processed).",
+    )
+    parser.add_argument(
         "--output-filepath",
         type=str,
         default=None,
@@ -203,6 +206,7 @@ def main():
     else:
         output_filepath = args.output_filepath
 
+    pycorr.logger.debug(f"GUPPI RAW files: {args.raw_filepaths}")
     guppi_bytes_total = numpy.sum(list(map(os.path.getsize, args.raw_filepaths)))
     pycorr.logger.debug(f"Total GUPPI RAW bytes: {guppi_bytes_total/(10**6)} MB")
 
@@ -218,10 +222,51 @@ def main():
     nchan = guppi_header["OBSNCHAN"] // nants
     ntimes = guppi_data.shape[2]
     schan = guppi_header.get("SCHAN", 0)
-    frequency_channel_0_hz = guppi_header["OBSFREQ"] - (nchan/2 - 0.5)*guppi_header["CHAN_BW"]
-    upchan_bw = guppi_header["CHAN_BW"]/args.upchannelisation_rate
-    frequency_channel_0_hz += 0.5 * upchan_bw
-    frequencies_hz = (frequency_channel_0_hz + numpy.arange(nchan*args.upchannelisation_rate)*upchan_bw)*1e6
+    coarse_chan_bw = guppi_header["CHAN_BW"]
+    frequency_channel_0_mhz = guppi_header["OBSFREQ"] - (nchan/2 + 0.5)*coarse_chan_bw
+
+    upchan_bw = coarse_chan_bw/args.upchannelisation_rate
+    frequencies_mhz = frequency_channel_0_mhz + numpy.arange(nchan*args.upchannelisation_rate)*upchan_bw
+
+    if args.frequency_mhz_begin is None:
+        args.frequency_mhz_begin = frequencies_mhz[0]
+    elif args.frequency_mhz_begin < frequencies_mhz[0]:
+            raise ValueError(f"Specified begin frequency is out of bounds: {frequencies_mhz[0]} Hz")
+
+    if args.frequency_mhz_end is None:
+        args.frequency_mhz_end = frequencies_mhz[-1]
+    elif args.frequency_mhz_end > frequencies_mhz[-1]:
+            raise ValueError(f"Specified end frequency is out of bounds: {frequencies_mhz[-1]} Hz")
+    
+    frequency_begin_fineidx = len(list(filter(lambda x: x<-upchan_bw, frequencies_mhz-args.frequency_mhz_begin)))
+    frequency_end_fineidx = len(list(filter(lambda x: x<=0, frequencies_mhz-args.frequency_mhz_end)))
+    assert frequency_begin_fineidx != frequency_end_fineidx, f"{frequency_begin_fineidx} == {frequency_end_fineidx}"
+
+    pycorr.logger.info(f"Fine-frequency channel range: [{frequency_begin_fineidx}, {frequency_end_fineidx})")
+    pycorr.logger.info(f"Fine-frequency range: [{frequencies_mhz[frequency_begin_fineidx]}, {frequencies_mhz[frequency_end_fineidx-1]}] MHz")
+
+    frequency_begin_coarseidx = int(numpy.floor(frequency_begin_fineidx/args.upchannelisation_rate))
+    frequency_end_coarseidx = int(numpy.ceil(frequency_end_fineidx/args.upchannelisation_rate))
+
+    if frequency_end_coarseidx == frequency_begin_coarseidx:
+        if frequency_end_coarseidx <= nchan:
+            frequency_end_coarseidx += 1
+        else:
+            assert frequency_begin_coarseidx >= 1
+            frequency_begin_coarseidx -= 1
+
+    pycorr.logger.info(f"Coarse-frequency channel range: [{frequency_begin_coarseidx}, {frequency_end_coarseidx})")
+    pycorr.logger.info(f"Coarse-frequency range: [{frequencies_mhz[frequency_begin_coarseidx*args.upchannelisation_rate]}, {frequencies_mhz[frequency_end_coarseidx*args.upchannelisation_rate - 1]}] MHz")
+    assert frequency_begin_coarseidx != frequency_end_coarseidx
+    
+    frequencies_mhz = frequencies_mhz[frequency_begin_fineidx:frequency_end_fineidx]
+
+    frequency_end_fineidx = frequency_end_fineidx - frequency_begin_coarseidx*args.upchannelisation_rate
+    frequency_begin_fineidx = frequency_begin_fineidx - frequency_begin_coarseidx*args.upchannelisation_rate
+
+    pycorr.logger.info(f"Fine-frequency relative channel range: [{frequency_begin_fineidx}, {frequency_end_fineidx})")
+    pycorr.logger.info(f"Fine-frequency range: [{frequencies_mhz[0]}, {frequencies_mhz[-1]}] MHz")
+    frequencies_mhz += 0.5 * upchan_bw
 
     guppi_header["POLS"] = guppi_header.get("POLS", args.polarisations)
     polarisation_chars = guppi_header["POLS"]
@@ -238,15 +283,15 @@ def main():
     
     timeperblk = guppi_data.shape[2]
     piperblk = guppi_header.get("PIPERBLK", timeperblk)
-    tbin = guppi_header.get("TBIN", 1.0/guppi_header["CHAN_BW"])
+    tbin = guppi_header.get("TBIN", 1.0/coarse_chan_bw)
     synctime = guppi_header.get("SYNCTIME", 0)
     dut1 = guppi_header.get("DUT1", 0.0)
 
     time_array = numpy.array((num_bls,), dtype='d')
     integration_time = numpy.array((num_bls,))
     integration_time.fill(datablock_time_requirement*tbin)
-    flags = numpy.zeros((num_bls, len(frequencies_hz), len(polproducts)), dtype='?')
-    nsamples = numpy.ones((num_bls, len(frequencies_hz), len(polproducts)), dtype='d')
+    flags = numpy.zeros((num_bls, len(frequencies_mhz), len(polproducts)), dtype='?')
+    nsamples = numpy.ones((num_bls, len(frequencies_mhz), len(polproducts)), dtype='d')
 
     ant_xyz = numpy.array([ant["position"] for ant in telinfo["antennas"]])
     antenna_numbers = [ant["number"] for ant in telinfo["antennas"]]
@@ -263,7 +308,7 @@ def main():
             guppi_header.get("SRC_NAME", "UNKNOWN"), # instrument_name,
             lla,
             telinfo["antennas"],
-            frequencies_hz,
+            frequencies_mhz*1e6,
             polproducts,
             phase_center_radians,
             dut1 = dut1
@@ -301,13 +346,16 @@ def main():
                 datablock = datablock[:, :, 0:datablock_time_requirement, :]
 
                 datablock_bytesize = datablock.size * datablock.itemsize
-                pycorr.logger.debug(f"Datablock bytesize: {datablock_bytesize/(10**6)} MB")
 
                 t = time.time()
-                datablock = pycorr.upchannelise(datablock, args.upchannelisation_rate)
+                datablock = pycorr.upchannelise(
+                    datablock[:, frequency_begin_coarseidx:frequency_end_coarseidx, :, :],
+                    args.upchannelisation_rate
+                )[:, frequency_begin_fineidx:frequency_end_fineidx, :, :]
                 
                 elapsed_s = time.time() - t
                 pycorr.logger.debug(f"Channelisation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                datablock_bytesize = datablock.size * datablock.itemsize
 
                 t = time.time()
                 datablock = pycorr.correlation(datablock)
