@@ -228,15 +228,17 @@ def main():
     upchan_bw = coarse_chan_bw/args.upchannelisation_rate
     frequencies_mhz = frequency_channel_0_mhz + numpy.arange(nchan*args.upchannelisation_rate)*upchan_bw
 
+    frequency_lowest_mhz = min(frequencies_mhz[0], frequencies_mhz[-1])
+    frequency_highest_mhz = max(frequencies_mhz[0], frequencies_mhz[-1])
     if args.frequency_mhz_begin is None:
-        args.frequency_mhz_begin = frequencies_mhz[0]
-    elif args.frequency_mhz_begin < frequencies_mhz[0]:
-            raise ValueError(f"Specified begin frequency is out of bounds: {frequencies_mhz[0]} Hz")
+        args.frequency_mhz_begin = frequency_lowest_mhz
+    elif args.frequency_mhz_begin < frequency_lowest_mhz:
+            raise ValueError(f"Specified begin frequency is out of bounds: {frequency_lowest_mhz} Hz")
 
     if args.frequency_mhz_end is None:
-        args.frequency_mhz_end = frequencies_mhz[-1]
-    elif args.frequency_mhz_end > frequencies_mhz[-1]:
-            raise ValueError(f"Specified end frequency is out of bounds: {frequencies_mhz[-1]} Hz")
+        args.frequency_mhz_end = frequency_highest_mhz
+    elif args.frequency_mhz_end > frequency_highest_mhz:
+            raise ValueError(f"Specified end frequency is out of bounds: {frequency_highest_mhz} Hz")
     
     frequency_begin_fineidx = len(list(filter(lambda x: x<-upchan_bw, frequencies_mhz-args.frequency_mhz_begin)))
     frequency_end_fineidx = len(list(filter(lambda x: x<=0, frequencies_mhz-args.frequency_mhz_end)))
