@@ -4,6 +4,7 @@ import tomli as tomllib # `tomllib` as of Python 3.11 (PEP 680)
 import h5py
 import numpy
 from guppi.guppi import Guppi
+import pyproj
 
 import pycorr
 
@@ -19,6 +20,19 @@ def _degrees_process(value):
             return value_f
         return float(value)
     return float(value)
+
+def transform_antenna_positions_ecef_to_xyz(longitude_deg, latitude_deg, altitude, antenna_positions):
+    transformer = pyproj.Proj.from_proj(
+        pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84'),
+        pyproj.Proj(proj='geocent', ellps='WGS84', datum='WGS84'),
+    )
+    telescopeCenterXyz = transformer.transform(
+        longitude_deg,
+        latitude_deg,
+        altitude,
+    )
+    for i in range(antenna_positions.shape[0]):
+        antenna_positions[i, :] -= telescopeCenterXyz
 
 def _get_telescope_metadata(telescope_info_filepath):
     """
@@ -54,8 +68,17 @@ def _get_telescope_metadata(telescope_info_filepath):
     altitude = telescope_info["altitude"]
     antenna_positions = numpy.array([antenna["position"] for antenna in telescope_info["antennas"]])
 
-    # TODO handle ecef, enu
-    assert telescope_info["antenna_position_frame"].lower() == "xyz"
+    # TODO handle enu
+    telinfo_antposframe = telescope_info["antenna_position_frame"].lower()
+    assert telinfo_antposframe in ["xyz", "ecef"]
+
+    if telinfo_antposframe == "ecef":
+        transform_antenna_positions_ecef_to_xyz(
+            longitude,
+            latitude,
+            altitude,
+            antenna_positions
+        )
 
     return {
         "telescope_name": telescope_info["telescope_name"],
