@@ -118,7 +118,7 @@ def filter_telinfo(
         for antenna in telinfo["antennas"]
         if antenna["name"] in antenna_names
     }
-    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in telinfo]))}"
+    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in antenna_telinfo]))}"
     
     return {
         "telescope_name": telinfo["telescope_name"],
