@@ -102,14 +102,19 @@ def filter_telinfo(
     guppi_header
 ):
     antenna_names = []
+    guppi_is_ata = guppi_header.get("TELESCOP", "UNKNOWN") == "ATA"
+    if guppi_is_ata:
+        pycorr.logger.warning("GUPPI file appears to be from the ATA, will drop the last character from the listed antenna names.")
     for i in range(100):
         key = f"ANTNMS{i:02d}"
-        if key in guppi_header:
-            if guppi_header.get("TELESCOP", "UNKNOWN") == "ATA":
-                # ATA antenna names have LO suffixed
-                antenna_names += map(lambda name: name[:-1], guppi_header[key].split(","))
-            else:
-                antenna_names += guppi_header[key].split(",")
+        if key not in guppi_header:
+            break
+
+        if guppi_is_ata:
+            # ATA antenna names have LO suffixed
+            antenna_names += map(lambda name: name[:-1], guppi_header[key].split(","))
+        else:
+            antenna_names += guppi_header[key].split(",")
 
     nants = guppi_header.get("NANTS", 1)
     antenna_names = antenna_names[:nants]
@@ -205,7 +210,7 @@ def main():
         "--verbose",
         action="count",
         default=0,
-        help="Increase the verbosity of the generation (0=Error, 1=Warn, 2=Info, 3=Debug)."
+        help="Increase the verbosity of the generation (0=Error, 1=Warn, 2=Info (progress statements), 3=Debug)."
     )
 
     args = parser.parse_args()
@@ -225,7 +230,7 @@ def main():
     
     input_dir, input_filename = os.path.split(args.raw_filepaths[0])
     if args.output_filepath is None:
-        output_filepath = os.path.join(input_dir, f"{os.path.splitext(input_filename)[0]}.bfr5")
+        output_filepath = os.path.join(input_dir, f"{os.path.splitext(input_filename)[0]}.uvh5")
     else:
         output_filepath = args.output_filepath
 
