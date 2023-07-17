@@ -123,7 +123,7 @@ def filter_telinfo(
         for antenna in telinfo["antennas"]
         if antenna["name"] in antenna_names
     }
-    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in antenna_telinfo]))}"
+    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in telinfo['antennas']]))}"
     
     return {
         "telescope_name": telinfo["telescope_name"],
@@ -220,7 +220,7 @@ def main():
         ][args.verbose]
     )
 
-    datablock_time_requirement = args.upchannelisation_rate * args.integration_rate
+    datablock_time_requirement = args.upchannelisation_rate
 
     telinfo = _get_telescope_metadata(args.telescope_info_filepath)
     if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
@@ -319,9 +319,9 @@ def main():
 
     time_array = numpy.array((num_bls,), dtype='d')
     integration_time = numpy.array((num_bls,))
-    integration_time.fill(datablock_time_requirement*tbin)
+    integration_time.fill(args.upchannelisation_rate*args.integration_rate*tbin)
     flags = numpy.zeros((num_bls, len(frequencies_mhz), len(polproducts)), dtype='?')
-    nsamples = numpy.ones((num_bls, len(frequencies_mhz), len(polproducts)), dtype='d')
+    nsamples = numpy.ones(flags.shape, dtype='d')
 
     ant_xyz = numpy.array([ant["position"] for ant in telinfo["antennas"]])
     antenna_numbers = [ant["number"] for ant in telinfo["antennas"]]
@@ -356,6 +356,9 @@ def main():
         t_start = t
         last_file_pos = 0
         datasize_processed = 0
+        integration_count = 0
+        # Integrate fine spectra in a separate buffer
+        integration_buffer = numpy.zeros(flags.shape, dtype="D")
         while True:
             datablock = numpy.concatenate(
                 (datablock, guppi_data),
@@ -393,11 +396,18 @@ def main():
                 pycorr.logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                 t = time.time()
-                assert datablock.shape[2] == args.integration_rate
-                datablock = pycorr.integrate(datablock)
+                assert datablock.shape[2] == 1
+                integration_buffer += datablock.reshape(integration_buffer.shape)
                 elapsed_s = time.time() - t
-                pycorr.logger.debug(f"Integration: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                pycorr.logger.debug(f"Integration {integration_count}/{args.integration_rate}: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                integration_count += 1
 
+                datablock = datablock_residual
+                del datablock_residual
+
+                if integration_count < args.integration_rate:
+                    continue
+                
                 t = time.time()
                 time_array.fill(
                     _get_jd(
@@ -424,7 +434,7 @@ def main():
                     ),
                     time_array,
                     integration_time,
-                    datablock,
+                    integration_buffer,
                     flags,
                     nsamples,
                 )
@@ -432,8 +442,9 @@ def main():
                 pycorr.logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
                 
                 datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
-                datablock = datablock_residual
-                del datablock_residual
+                
+                integration_count = 0
+                integration_buffer.fill(0.0)
 
             guppi_header, guppi_data = guppi.read_next_block()
             if guppi_header is None and len(args.raw_filepaths) > 0:
