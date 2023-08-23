@@ -36,7 +36,7 @@ def transform_antenna_positions_ecef_to_xyz(longitude_deg, latitude_deg, altitud
 
 def _get_telescope_metadata(telescope_info_filepath):
     """
-    Returns a standardised formation of the TOML/YAML contents:
+    Returns a standardised formation of the TOML/YAML/BFR5 contents:
     {
         "telescope_name": str,
         "longitude": float, # radians
@@ -60,6 +60,24 @@ def _get_telescope_metadata(telescope_info_filepath):
     elif telinfo_ext in [".yaml", ".yml"]:
         with open(telescope_info_filepath, mode="r") as f:
             telescope_info = yaml.load(f, Loader=yaml.CSafeLoader)
+    elif telinfo_ext in [".bfr5"]:
+        with h5py.File(bfr5_file, 'r') as f:
+            telescope_info = {
+                "telescope_name": f["telinfo"]["telescope_name"][()],
+                "longitude": f["telinfo"]["longitude"][()],
+                "latitude": f["telinfo"]["latitude"][()],
+                "altitude": f["telinfo"]["altitude"][()],
+                "antenna_position_frame": f["telinfo"]["antenna_position_frame"][()],
+                "antennas": [
+                    {
+                        "number": antenna_number,
+                        "name": f["telinfo"]["antenna_names"][i],
+                        "position": f["telinfo"]["antenna_positions"][i],
+                        "diameter": f["telinfo"]["antenna_diameters"][i],
+                    }
+                    for i, antenna_number in enumerate(f["telinfo"]["antenna_numbers"])
+                ]
+            }
     else:
         raise ValueError(f"Unknown file format '{telinfo_ext}' ({os.path.basename(telescope_info_filepath)}). Known formats are: yaml, toml.")
 
@@ -179,7 +197,7 @@ def main():
         "--telescope-info-filepath",
         type=str,
         required=True,
-        help="The path to telescope information.",
+        help="The path to telescope information (YAML/TOML or BFR5['telinfo']).",
     )
     parser.add_argument(
         "-u",
