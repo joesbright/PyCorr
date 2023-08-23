@@ -115,15 +115,30 @@ def filter_telinfo(
             antenna_names += map(lambda name: name[:-1], guppi_header[key].split(","))
         else:
             antenna_names += guppi_header[key].split(",")
-
+    
     nants = guppi_header.get("NANTS", 1)
-    antenna_names = antenna_names[:nants]
-    antenna_telinfo = {
-        antenna["name"]: antenna
-        for antenna in telinfo["antennas"]
-        if antenna["name"] in antenna_names
-    }
-    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in telinfo['antennas']]))}"
+
+    if len(antenna_names) > 0:
+        antenna_names = antenna_names[:nants]
+        antenna_telinfo = {
+            antenna["name"]: antenna
+            for antenna in telinfo["antennas"]
+            if antenna["name"] in antenna_names
+        }
+        assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in telinfo['antennas']]))}"
+    else:
+        pycorr.logger.warning("No antenna names listed in the GUPPI header under 'ANTNMS%d{2}' entries. Using all provided antenna, sorted by number.")
+        antenna_number_name_map = {
+            antenna["number"]: antenna["name"]
+            for antenna in telinfo["antennas"]
+        }
+        antenna_numbers = list(antenna_number_name_map.keys())
+        antenna_numbers.sort()
+        antenna_names = [
+            antenna_number_name_map[antnum]
+            for antnum in antenna_numbers
+        ]
+
     
     return {
         "telescope_name": telinfo["telescope_name"],
@@ -307,8 +322,8 @@ def main():
     ]
 
     phase_center_radians = (
-        float(guppi_header.get("RA_PHAS", guppi_header["RA_STR"])) * numpy.pi / 12.0 ,
-        float(guppi_header.get("DEC_PHAS", guppi_header["DEC_STR"])) * numpy.pi / 180.0 ,
+        _degrees_process(guppi_header.get("RA_PHAS", guppi_header["RA_STR"])) * numpy.pi / 12.0 ,
+        _degrees_process(guppi_header.get("DEC_PHAS", guppi_header["DEC_STR"])) * numpy.pi / 180.0 ,
     )
     
     timeperblk = guppi_data.shape[2]
