@@ -61,7 +61,7 @@ def _get_telescope_metadata(telescope_info_filepath):
         with open(telescope_info_filepath, mode="r") as f:
             telescope_info = yaml.load(f, Loader=yaml.CSafeLoader)
     elif telinfo_ext in [".bfr5"]:
-        with h5py.File(bfr5_file, 'r') as f:
+        with h5py.File(telescope_info_filepath, 'rb') as f:
             telescope_info = {
                 "telescope_name": f["telinfo"]["telescope_name"][()],
                 "longitude": f["telinfo"]["longitude"][()],
